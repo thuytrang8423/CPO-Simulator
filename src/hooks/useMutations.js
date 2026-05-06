@@ -83,3 +83,23 @@ export const useChangeConnectorStatus = () => {
     },
   });
 };
+
+export const useStartSession = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload) => {
+      await chargingSessionApi.startSession(payload);
+    },
+    onSuccess: () => {
+      toast.success('Charging session started!');
+      queryClient.invalidateQueries({ queryKey: ['activeSessions'] });
+      queryClient.invalidateQueries({ queryKey: ['connectors'] });
+    },
+    onError: (error) => {
+      console.error('Error starting session:', error);
+      toast.error('Failed to start session.');
+    },
+  });
+};
+

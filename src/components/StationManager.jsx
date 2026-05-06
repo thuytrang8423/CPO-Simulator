@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRight, Zap, MapPin, User, Activity, RefreshCw } from 'lucide-react';
+import { ChevronRight, Zap, MapPin, User, Activity, RefreshCw, Play } from 'lucide-react';
 import { useAppStore } from '../store/store';
 import { 
   useAccounts, 
@@ -7,7 +7,7 @@ import {
   useChargers, 
   useConnectors 
 } from '../hooks/useQueries';
-import { useChangeConnectorStatus } from '../hooks/useMutations';
+import { useChangeConnectorStatus, useStartSession } from '../hooks/useMutations';
 
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -30,6 +30,8 @@ const StationManager = () => {
   const { data: connectors = [], isLoading: loadingConnectors } = useConnectors(selectedCharger);
 
   const changeStatusMutation = useChangeConnectorStatus();
+  const startSessionMutation = useStartSession();
+
 
   // Dialog State
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -73,7 +75,20 @@ const StationManager = () => {
     });
   };
 
-  const anyLoading = loadingAccounts || loadingStations || loadingChargers || loadingConnectors || changeStatusMutation.isPending;
+  const handleStartSession = (connector) => {
+    const activeStation = stations.find(s => s.id === selectedStation);
+    const activeCharger = chargers.find(c => c.id === selectedCharger);
+    
+    startSessionMutation.mutate({
+      stationId: activeStation?.stationCode || selectedStation,
+      evseId: activeCharger?.evchargerCode || selectedCharger,
+      connectorId: connector.connectorNo || connector.connectorId || 1,
+      tagId: 'MANUAL_USER',
+      sessionId: `SES_${Math.floor(Math.random() * 1000000)}`
+    });
+  };
+
+  const anyLoading = loadingAccounts || loadingStations || loadingChargers || loadingConnectors || changeStatusMutation.isPending || startSessionMutation.isPending;
 
   return (
     <div className="station-manager-container h-full flex flex-col">
@@ -196,6 +211,17 @@ const StationManager = () => {
                       <SelectItem value="OCCUPIED">OCCUPIED</SelectItem>
                     </SelectContent>
                   </Select>
+
+                  {con.status !== 'CHARGING' && con.status !== 'OCCUPIED' && (
+                    <Button 
+                      className="w-full mt-3 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
+                      onClick={() => handleStartSession(con)}
+                      disabled={startSessionMutation.isPending}
+                    >
+                      {startSessionMutation.isPending ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} fill="currentColor" />}
+                      Start Session
+                    </Button>
+                  )}
                 </div>
               )) : <p className="text-center text-muted-foreground mt-8 text-sm">{loadingConnectors ? 'Loading...' : 'No connectors found'}</p>}
             </>
