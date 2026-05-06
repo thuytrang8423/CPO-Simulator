@@ -30,15 +30,6 @@ export default function App() {
           </AnimatePresence>
         </main>
         <Toaster position="top-right" richColors />
-        
-        <style dangerouslySetInnerHTML={{ __html: `
-          .app-container {
-            display: flex;
-            height: 100vh;
-            width: 100vw;
-            overflow: hidden;
-          }
-        `}} />
       </div>
     </QueryClientProvider>
   );

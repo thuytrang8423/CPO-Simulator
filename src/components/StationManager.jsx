@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRight, Zap, MapPin, User, Activity, RefreshCw, Play } from 'lucide-react';
+import { ChevronRight, Zap, MapPin, User, Activity, RefreshCw, PowerOff } from 'lucide-react';
 import { useAppStore } from '../store/store';
 import { 
   useAccounts, 
@@ -7,286 +7,219 @@ import {
   useChargers, 
   useConnectors 
 } from '../hooks/useQueries';
-import { useChangeConnectorStatus, useStartSession } from '../hooks/useMutations';
+import { useChangeConnectorStatus } from '../hooks/useMutations';
 
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
+import { Badge } from './ui/badge';
+import { Card } from './ui/card';
 
 const StationManager = () => {
-  // Zustand State
   const { 
     selectedAccount, setSelectedAccount,
     selectedStation, setSelectedStation,
     selectedCharger, setSelectedCharger
   } = useAppStore();
 
-  // React Query Data
   const { data: accounts = [], isLoading: loadingAccounts } = useAccounts();
   const { data: stations = [], isLoading: loadingStations } = useStations(selectedAccount);
   const { data: chargers = [], isLoading: loadingChargers } = useChargers(selectedStation);
   const { data: connectors = [], isLoading: loadingConnectors } = useConnectors(selectedCharger);
 
   const changeStatusMutation = useChangeConnectorStatus();
-  const startSessionMutation = useStartSession();
 
-
-  // Dialog State
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isPlugInDialogOpen, setIsPlugInDialogOpen] = useState(false);
   const [targetConnector, setTargetConnector] = useState(null);
-  const [targetStatus, setTargetStatus] = useState('');
-  const [formData, setFormData] = useState({
+  
+  const [sessionData, setSessionData] = useState({
     sessionId: '',
     currentTemp: '42.5',
     currentVoltage: '230.0',
     currentFirmware: '2.1'
   });
 
-  const handleOpenDialog = (connector, newStatus) => {
-    if (!newStatus) return;
+  const generateSessionId = () => `SES_MANUAL_${Math.floor(Math.random() * 1000000)}`;
+
+  const handleOpenPlugIn = (connector) => {
     setTargetConnector(connector);
-    setTargetStatus(newStatus);
-    setFormData({
-      ...formData,
-      sessionId: `SES_MANUAL_${Math.floor(Math.random() * 1000)}`
-    });
-    setIsDialogOpen(true);
+    setSessionData(prev => ({ ...prev, sessionId: generateSessionId() }));
+    setIsPlugInDialogOpen(true);
   };
 
-  const handleSubmitStatusChange = () => {
+  const executePlugIn = () => {
     if (!targetConnector) return;
-
-    setIsDialogOpen(false);
-    
     const activeStation = stations.find(s => s.id === selectedStation);
     const activeCharger = chargers.find(c => c.id === selectedCharger);
-    
+
     changeStatusMutation.mutate({
       stationId: activeStation?.stationCode || selectedStation,
       evseId: activeCharger?.evchargerCode || selectedCharger,
       connectorId: targetConnector.connectorNo || targetConnector.connectorId || 1,
-      status: targetStatus,
-      sessionId: formData.sessionId,
-      currentTemp: parseFloat(formData.currentTemp),
-      currentVoltage: parseFloat(formData.currentVoltage),
-      currentFirmware: parseFloat(formData.currentFirmware)
+      status: 'OCCUPIED',
+      sessionId: sessionData.sessionId,
+      currentTemp: parseFloat(sessionData.currentTemp),
+      currentVoltage: parseFloat(sessionData.currentVoltage),
+      currentFirmware: parseFloat(sessionData.currentFirmware)
     });
+    setIsPlugInDialogOpen(false);
   };
 
-  const handleStartSession = (connector) => {
+  const handleUnplug = (connector) => {
     const activeStation = stations.find(s => s.id === selectedStation);
     const activeCharger = chargers.find(c => c.id === selectedCharger);
-    
-    startSessionMutation.mutate({
+
+    changeStatusMutation.mutate({
       stationId: activeStation?.stationCode || selectedStation,
       evseId: activeCharger?.evchargerCode || selectedCharger,
       connectorId: connector.connectorNo || connector.connectorId || 1,
-      tagId: 'MANUAL_USER',
-      sessionId: `SES_${Math.floor(Math.random() * 1000000)}`
+      status: 'AVAILABLE',
+      sessionId: sessionData.sessionId || generateSessionId()
     });
   };
 
-  const anyLoading = loadingAccounts || loadingStations || loadingChargers || loadingConnectors || changeStatusMutation.isPending || startSessionMutation.isPending;
+  const getStatusColor = (status) => {
+    const s = status?.toUpperCase();
+    if (s === 'AVAILABLE') return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+    if (s === 'OCCUPIED') return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
+    return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+  };
+
+  const anyLoading = loadingAccounts || loadingStations || loadingChargers || loadingConnectors || changeStatusMutation.isPending;
 
   return (
-    <div className="station-manager-container h-full flex flex-col">
-      <div className="view-header">
+    <div className="p-6 h-full flex flex-col space-y-6 overflow-hidden">
+      <div className="flex justify-between items-end mb-4">
         <div className="view-title">
-          <h1 className="text-3xl font-bold text-foreground">Infrastructure Browser</h1>
-          <p className="text-muted-foreground">Drill down into your network hierarchy to manage specific connectors.</p>
+          <h1 className="text-4xl font-extrabold tracking-tight">Manual Control</h1>
+          <p className="text-muted-foreground mt-2 text-lg">Manage your charging network hierarchy.</p>
         </div>
-        {anyLoading && <RefreshCw className="animate-spin text-primary" size={20} />}
+        {anyLoading && <RefreshCw className="animate-spin text-primary" size={24} />}
       </div>
       
-      <div className="grid grid-cols-4 gap-4 flex-1 min-h-0">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 flex-1 min-h-0">
         {/* Column 1: Accounts */}
-        <div className="card-container flex flex-col h-full overflow-hidden">
-          <div className="section-title text-foreground"><User size={18}/> Accounts</div>
-          <div className="flex-1 overflow-y-auto pr-2 space-y-2">
-            {accounts.length > 0 ? accounts.map((item, idx) => {
+        <Card className="flex flex-col h-full overflow-hidden bg-card/50 backdrop-blur-sm border-border/50 rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-4 px-2 font-bold text-lg">
+            <User size={20} className="text-primary"/> Accounts
+          </div>
+          <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+            {accounts.map((item, idx) => {
               const id = item.accountId || idx;
-              const name = item.name || id;
               const isActive = selectedAccount === id;
               return (
-                <div 
-                  key={id} 
-                  className={`list-item group flex justify-between items-center p-3 rounded-lg cursor-pointer transition-all border ${
-                    isActive ? 'bg-primary/10 border-primary text-primary' : 'bg-background hover:bg-muted border-border text-foreground'
-                  }`}
-                  onClick={() => setSelectedAccount(id)}
-                >
-                  <span className="font-medium">{name}</span>
-                  <ChevronRight size={16} className={isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}/>
-                </div>
+                <button key={id} className={`w-full text-left flex justify-between items-center p-4 rounded-xl transition-all border ${isActive ? 'bg-primary/10 border-primary/50 shadow-inner' : 'bg-background/50 hover:bg-muted/50 border-transparent'}`} onClick={() => setSelectedAccount(id)}>
+                  <span className={`font-semibold ${isActive ? 'text-primary' : 'text-foreground'}`}>{item.name || id}</span>
+                  <ChevronRight size={18} className={isActive ? 'text-primary' : 'text-muted-foreground opacity-50'}/>
+                </button>
               );
-            }) : <p className="text-center text-muted-foreground mt-8 text-sm">{loadingAccounts ? 'Loading...' : 'No accounts found'}</p>}
+            })}
           </div>
-        </div>
+        </Card>
 
         {/* Column 2: Stations */}
-        <div className="card-container flex flex-col h-full overflow-hidden">
-          <div className="section-title text-foreground"><MapPin size={18}/> Stations</div>
-          <div className="flex-1 overflow-y-auto pr-2 space-y-2">
-          {selectedAccount ? (
-            <>
-              {stations.length > 0 ? stations.map((item, idx) => {
+        <Card className="flex flex-col h-full overflow-hidden bg-card/50 backdrop-blur-sm border-border/50 rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-4 px-2 font-bold text-lg">
+            <MapPin size={20} className="text-primary"/> Stations
+          </div>
+          <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+            {stations.map((item, idx) => {
                 const id = item.id || idx;
-                const name = item.name || item.stationCode || id;
                 const isActive = selectedStation === id;
                 return (
-                  <div 
-                    key={id} 
-                    className={`list-item group flex justify-between items-center p-3 rounded-lg cursor-pointer transition-all border ${
-                      isActive ? 'bg-primary/10 border-primary text-primary' : 'bg-background hover:bg-muted border-border text-foreground'
-                    }`}
-                    onClick={() => setSelectedStation(id)}
-                  >
-                    <span className="font-medium">{name}</span>
-                    <ChevronRight size={16} className={isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}/>
-                  </div>
+                  <button key={id} className={`w-full text-left flex justify-between items-center p-4 rounded-xl transition-all border ${isActive ? 'bg-primary/10 border-primary/50 shadow-inner' : 'bg-background/50 hover:bg-muted/50 border-transparent'}`} onClick={() => setSelectedStation(id)}>
+                    <span className={`font-semibold ${isActive ? 'text-primary' : 'text-foreground'}`}>{item.name || item.stationCode || id}</span>
+                    <ChevronRight size={18} className={isActive ? 'text-primary' : 'text-muted-foreground opacity-50'}/>
+                  </button>
                 );
-              }) : <p className="text-center text-muted-foreground mt-8 text-sm">{loadingStations ? 'Loading...' : 'No stations found'}</p>}
-            </>
-          ) : <p className="text-center text-muted-foreground mt-8 text-sm">Select an account</p>}
+            })}
           </div>
-        </div>
+        </Card>
 
         {/* Column 3: Chargers */}
-        <div className="card-container flex flex-col h-full overflow-hidden">
-          <div className="section-title text-foreground"><Zap size={18}/> Chargers</div>
-          <div className="flex-1 overflow-y-auto pr-2 space-y-2">
-          {selectedStation ? (
-            <>
-              {chargers.length > 0 ? chargers.map((item, idx) => {
+        <Card className="flex flex-col h-full overflow-hidden bg-card/50 backdrop-blur-sm border-border/50 rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-4 px-2 font-bold text-lg">
+            <Zap size={20} className="text-primary"/> Chargers
+          </div>
+          <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+            {chargers.map((item, idx) => {
                 const id = item.id || idx;
-                const name = item.evchargerCode || item.name || id;
                 const isActive = selectedCharger === id;
                 return (
-                  <div 
-                    key={id} 
-                    className={`list-item group flex justify-between items-center p-3 rounded-lg cursor-pointer transition-all border ${
-                      isActive ? 'bg-primary/10 border-primary text-primary' : 'bg-background hover:bg-muted border-border text-foreground'
-                    }`}
-                    onClick={() => setSelectedCharger(id)}
-                  >
-                    <span className="font-medium">{name}</span>
-                    <ChevronRight size={16} className={isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}/>
+                  <button key={id} className={`w-full text-left flex justify-between items-center p-4 rounded-xl transition-all border ${isActive ? 'bg-primary/10 border-primary/50 shadow-inner' : 'bg-background/50 hover:bg-muted/50 border-transparent'}`} onClick={() => setSelectedCharger(id)}>
+                    <span className={`font-semibold ${isActive ? 'text-primary' : 'text-foreground'}`}>{item.evchargerCode || item.name || id}</span>
+                    <ChevronRight size={18} className={isActive ? 'text-primary' : 'text-muted-foreground opacity-50'}/>
+                  </button>
+                );
+            })}
+          </div>
+        </Card>
+
+        {/* Column 4: Control Area */}
+        <Card className="flex flex-col h-full overflow-hidden bg-card/50 backdrop-blur-sm border-border/50 rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-4 px-2 font-bold text-lg">
+            <Activity size={20} className="text-primary"/> Live Port Control
+          </div>
+          <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+            {connectors.map((con, idx) => {
+                const status = con.status?.toUpperCase() || 'UNKNOWN';
+                return (
+                  <div key={con.id || idx} className="p-5 rounded-xl border border-border/50 bg-background/50 shadow-sm space-y-4">
+                    <div className="flex justify-between items-center">
+                        <span className="font-bold text-lg">Port #{con.connectorNo || con.connectorId || idx + 1}</span>
+                        <Badge className={`${getStatusColor(status)} border-none font-bold px-3 py-1 rounded-lg text-[10px]`}>
+                            {status}
+                        </Badge>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 gap-2">
+                        {status === 'AVAILABLE' ? (
+                            <Button className="w-full h-11 bg-amber-500 hover:bg-amber-600 font-bold rounded-lg shadow-lg shadow-amber-500/10" onClick={() => handleOpenPlugIn(con)}>
+                                <Activity size={16} className="mr-2"/> Plug In
+                            </Button>
+                        ) : (
+                            <Button variant="outline" className="w-full h-11 border-rose-500 text-rose-500 hover:bg-rose-500 hover:text-white font-bold rounded-lg" onClick={() => handleUnplug(con)}>
+                                <PowerOff size={16} className="mr-2"/> Unplug
+                            </Button>
+                        )}
+                    </div>
                   </div>
                 );
-              }) : <p className="text-center text-muted-foreground mt-8 text-sm">{loadingChargers ? 'Loading...' : 'No chargers found'}</p>}
-            </>
-          ) : <p className="text-center text-muted-foreground mt-8 text-sm">Select a station</p>}
-          </div>
-        </div>
-
-        {/* Column 4: Connectors */}
-        <div className="card-container flex flex-col h-full overflow-hidden">
-          <div className="section-title text-foreground"><Activity size={18}/> Connectors</div>
-          <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-          {selectedCharger ? (
-            <>
-              {connectors.length > 0 ? connectors.map((con, idx) => (
-                <div key={con.id || idx} className="p-4 bg-background border border-border rounded-xl shadow-sm">
-                  <div className="flex justify-between items-center mb-3">
-                    <strong className="text-foreground">Port #{con.connectorNo || con.connectorId || idx + 1}</strong>
-                    <span className={`badge badge-${(con.status || 'unknown').toLowerCase()}`}>{con.status || 'Unknown'}</span>
-                  </div>
-                  
-                  <Select onValueChange={(val) => handleOpenDialog(con, val)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Change Status..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="AVAILABLE">AVAILABLE</SelectItem>
-                      <SelectItem value="PREPARING">PREPARING</SelectItem>
-                      <SelectItem value="CHARGING">CHARGING</SelectItem>
-                      <SelectItem value="SUSPENDED_EVSE">SUSPENDED_EVSE</SelectItem>
-                      <SelectItem value="SUSPENDED_EV">SUSPENDED_EV</SelectItem>
-                      <SelectItem value="FINISHING">FINISHING</SelectItem>
-                      <SelectItem value="RESERVED">RESERVED</SelectItem>
-                      <SelectItem value="UNAVAILABLE">UNAVAILABLE</SelectItem>
-                      <SelectItem value="FAULTED">FAULTED</SelectItem>
-                      <SelectItem value="OCCUPIED">OCCUPIED</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  {con.status !== 'CHARGING' && con.status !== 'OCCUPIED' && (
-                    <Button 
-                      className="w-full mt-3 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
-                      onClick={() => handleStartSession(con)}
-                      disabled={startSessionMutation.isPending}
-                    >
-                      {startSessionMutation.isPending ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} fill="currentColor" />}
-                      Start Session
-                    </Button>
-                  )}
+            })}
+            {connectors.length === 0 && (
+                <div className="h-full flex items-center justify-center text-muted-foreground opacity-40 italic text-sm p-8 text-center">
+                    Select a charger to view port controls
                 </div>
-              )) : <p className="text-center text-muted-foreground mt-8 text-sm">{loadingConnectors ? 'Loading...' : 'No connectors found'}</p>}
-            </>
-          ) : <p className="text-center text-muted-foreground mt-8 text-sm">Select a charger</p>}
+            )}
           </div>
-        </div>
+        </Card>
       </div>
 
-      {/* Dynamic Values Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+      {/* Dialogs */}
+      <Dialog open={isPlugInDialogOpen} onOpenChange={setIsPlugInDialogOpen}>
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Update Connector Status</DialogTitle>
+            <DialogTitle className="text-2xl font-bold">Plug In Connector</DialogTitle>
+            <DialogDescription>Inform the system that a vehicle has occupied this port.</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <p className="text-sm text-muted-foreground mb-2">
-              You are setting Port #{targetConnector?.connectorNo || targetConnector?.connectorId} to <strong>{targetStatus}</strong>.
-            </p>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="sessionId" className="text-right">Session ID</Label>
-              <Input 
-                id="sessionId" 
-                value={formData.sessionId} 
-                onChange={(e) => setFormData({...formData, sessionId: e.target.value})}
-                className="col-span-3" 
-              />
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+                <Label>Session ID</Label>
+                <Input value={sessionData.sessionId} onChange={(e) => setSessionData({...sessionData, sessionId: e.target.value})} />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="temp" className="text-right">Temp (°C)</Label>
-              <Input 
-                id="temp" 
-                type="number" step="0.1"
-                value={formData.currentTemp} 
-                onChange={(e) => setFormData({...formData, currentTemp: e.target.value})}
-                className="col-span-3" 
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="voltage" className="text-right">Voltage (V)</Label>
-              <Input 
-                id="voltage" 
-                type="number" step="0.1"
-                value={formData.currentVoltage} 
-                onChange={(e) => setFormData({...formData, currentVoltage: e.target.value})}
-                className="col-span-3" 
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="firmware" className="text-right">Firmware</Label>
-              <Input 
-                id="firmware" 
-                type="number" step="0.1"
-                value={formData.currentFirmware} 
-                onChange={(e) => setFormData({...formData, currentFirmware: e.target.value})}
-                className="col-span-3" 
-              />
+            <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <Label>Temp (°C)</Label>
+                    <Input type="number" value={sessionData.currentTemp} onChange={(e) => setSessionData({...sessionData, currentTemp: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                    <Label>Voltage (V)</Label>
+                    <Input type="number" value={sessionData.currentVoltage} onChange={(e) => setSessionData({...sessionData, currentVoltage: e.target.value})} />
+                </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmitStatusChange} disabled={changeStatusMutation.isPending}>
-              {changeStatusMutation.isPending && <RefreshCw className="animate-spin mr-2 h-4 w-4" />}
-              Send Update
-            </Button>
-          </DialogFooter>
+          <DialogFooter><Button className="w-full bg-amber-500 font-bold h-12" onClick={executePlugIn}>Confirm Occupation</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
